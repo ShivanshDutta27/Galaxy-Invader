@@ -18,7 +18,7 @@ BLUE_SPACE_SHIP = pygame.image.load(os.path.join("assets", "pixel_ship_blue_smal
 
 # Player player
 YELLOW_SPACE_SHIP = pygame.image.load(os.path.join("assets", "pixel_ship_yellow.png"))
-BOSS_SHIP=pygame.image.load(os.path.join("assets","pixel_ship_boss.png"))
+BOSS_SHIP=pygame.transform.scale(pygame.image.load(os.path.join("assets","pixel_ship_boss.png"),),(100,100))
 # Lasers
 RED_LASER = pygame.image.load(os.path.join("assets", "pixel_laser_red.png"))
 GREEN_LASER = pygame.image.load(os.path.join("assets", "pixel_laser_green.png"))
@@ -122,18 +122,29 @@ class Player(Ship):
         self.mask = pygame.mask.from_surface(self.ship_img)        # Identifies where pixels are and aren't
         self.max_health = health
 
-    def move_lasers(self, vel, objs):
-        self.cooldown()
-        for laser in self.lasers:
-            laser.move(vel)
-            if laser.off_screen(HEIGHT):
-                self.lasers.remove(laser)
-            else:
-                for obj in objs:
-                    if laser.collision(obj):
-                        objs.remove(obj)
-                        if laser in self.lasers:
-                            self.lasers.remove(laser)
+    def move_lasers(self, vel, objs,isBoss):
+        if not isBoss:
+            self.cooldown()
+            for laser in self.lasers:
+                laser.move(vel)
+                if laser.off_screen(HEIGHT):
+                    self.lasers.remove(laser)
+                else:
+                    for obj in objs:
+                        if laser.collision(obj):
+                            objs.remove(obj)
+                            if laser in self.lasers:
+                                self.lasers.remove(laser)
+        else:
+            self.cooldown()
+            for laser in self.lasers:
+                laser.move(vel)
+                if laser.off_screen(HEIGHT):
+                    self.lasers.remove(laser)
+                elif laser.collision(objs):
+                    objs.health -= 10
+                    if laser in self.lasers:
+                        self.lasers.remove(laser)
 
     def draw(self, window):
         super().draw(window)
@@ -152,8 +163,10 @@ class Boss(Ship):
 
         self.mask = pygame.mask.from_surface(self.ship_img)
         self.max_health = health
+        self.last_move_time = pygame.time.get_ticks()
+        self.dir=True
 
-    def move_lasers(self, vel, obj,enemies):
+    def move_lasers(self, vel, obj):
 
         self.cooldown()
         for laser in self.lasers:
@@ -162,9 +175,14 @@ class Boss(Ship):
                 self.lasers.remove(laser)
             elif laser.collision(obj):
                 obj.health -= 10
-                if obj.health <= 0:
-                    enemies.remove(obj)
-                    self.lasers.remove(laser)
+                self.lasers.remove(laser)
+    def shoot(self):
+        if self.cool_down_counter == 0:
+            laser1 = Laser(self.x-20, self.y, self.laser_img)
+            self.lasers.append(laser1)
+            laser2 = Laser(self.x+self.ship_img.get_width() - 20, self.y, self.laser_img)
+            self.lasers.append(laser2)
+            self.cool_down_counter+=0.5
 
     def draw(self, window):
         super().draw(window)
@@ -174,9 +192,19 @@ class Boss(Ship):
         pygame.draw.rect(window, (255,0,0), (self.x, self.y + self.ship_img.get_height() + 10, self.ship_img.get_width(), 10))
         pygame.draw.rect(window, (0,255,0), (self.x, self.y + self.ship_img.get_height() + 10, self.ship_img.get_width() * (self.health/self.max_health), 10))
 
+    def move(self):
+        if self.y<25:
+            self.y+=2
 
+    def move_x(self,vel_x,val):
+        if val>0.99:
+            self.dir=not self.dir
+        if self.dir==True and self.x+self.ship_img.get_width()+ vel_x<WIDTH:
+            self.x+=vel_x
+        elif self.dir==False and self.x-self.ship_img.get_width()+vel_x>0:
+            self.x-=vel_x
 
-
+# if boss health 0, move randomly
 class Enemy(Ship):
     COLOR_MAP = {
                 "red": (RED_SPACE_SHIP, RED_LASER),
@@ -227,10 +255,7 @@ def main():
     lost = False
     lost_count = 0
 
-    def boss_level():
-
-        enemies.clear()
-        enemies.append(Boss(WIDTH // 2 - BOSS_SHIP.get_width() // 2, -150))
+    
 
     def redraw_window():
         WIN.blit(BG, (0,0))
@@ -253,22 +278,26 @@ def main():
         pygame.display.update()
 
     while run:
+
         clock.tick(FPS)
         redraw_window()
         # Checking if lost
         if lives <= 0 or player.health <= 0:
             lost = True
             lost_count += 1
-        if level == 8:
-            boss_level()
+
         if lost:
             if lost_count > FPS * 3:
                 run = False
             else:
                 continue
         # Spawning enemies
+        
         if len(enemies) == 0:
             level += 1
+            if(level==8):
+                boss_level()
+                
             wave_length += round(5*(math.log(level,2)))
             for i in range(wave_length):
                 enemy = Enemy(random.randrange(50, WIDTH-100), random.randrange(-1500, -100), random.choice(["red", "blue", "green"]))
@@ -304,7 +333,7 @@ def main():
                 lives -= 1
                 enemies.remove(enemy)
         # Negative belocity so that it goes up and not down
-        player.move_lasers(-laser_vel, enemies)
+        player.move_lasers(-laser_vel, enemies,False)
 
     pygame.quit()
 
@@ -332,29 +361,129 @@ def game_rules():
                     pygame.time.delay(200)
                     main_menu()
     pygame.quit()
+
+
+
+def boss_level():
+    run = True
+    FPS = 60
+    x=0
+    main_font = pygame.font.SysFont("JetBrains Mono", 36)
+    lost_font = pygame.font.SysFont("Arial", 50)
+    
+    boss=Boss(WIDTH//2-BOSS_SHIP.get_width()//2,-200,200)
+    player_vel = 5
+    laser_vel = 5
+    boss_vel = 6
+    player = Player(300, 630)
+    clock = pygame.time.Clock()
+
+    lost = False
+    lost_count = 0
+    win=False
+    win_count=0
+    def redraw_window():
+        WIN.blit(BG, (0, 0))
+        
+        level_label = main_font.render(f"Boss Level", 1, (255, 0, 0))
+
+        WIN.blit(level_label, (WIDTH//2-level_label.get_width()//2, 0))
+
+        boss.draw(WIN)
+        
+        player.draw(WIN)
+
+        if lost:
+            lost_label = lost_font.render("Come back again(If You Dare)", 1, (255, 255, 255))
+            WIN.blit(lost_label, (WIDTH / 2 - lost_label.get_width() / 2, 350))
+
+        pygame.display.update()
+
+    while run:
+
+        clock.tick(FPS)
+        redraw_window()
+        # Checking if lost
+        if player.health <= 0:
+            lost = True
+            lost_count += 1
+
+        # Check if won
+        if boss.health<=0:
+            won_text=main_font.render("You are the Goat",1,"white")
+            WIN.blit(won_text,(WIDTH//2-won_text.get_width()//2,HEIGHT//2-won_text.get_height()//2))
+            pygame.display.update()
+            win=True
+
+        if win:
+            if win_count > FPS*2:
+                run=False
+            else:
+                win_count+=1
+                continue
+        if lost:
+            if lost_count > FPS * 3:
+                run = False
+            else:
+                continue
+        boss.move()
+
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                quit()
+        # if we handle the movement inside this for loop, it wont register multiple clicks at the same time
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_a] and player.x - player_vel > 0:  # left
+            player.x -= player_vel
+        if keys[pygame.K_d] and player.x + player_vel + player.get_width() < WIDTH:  # right
+            player.x += player_vel
+        if keys[pygame.K_w] and player.y - player_vel > 0:  # up
+            player.y -= player_vel
+        if keys[pygame.K_s] and player.y + player_vel + player.get_height() + 15 < HEIGHT:  # down
+            player.y += player_vel
+        if keys[pygame.K_SPACE]:
+            player.shoot()
+        val=random.random()
+        print(val)
+        if boss.y>=15 :
+            boss.move_x(2,val)
+
+
+        boss.move_lasers(laser_vel,player)
+        if random.randrange(0, 2 * 20) == 1:
+            boss.shoot()
+
+        if collide(boss, player):
+            lost=True
+            continue
+        
+        player.move_lasers(-laser_vel, boss,True)
+        x+=1
+    pygame.quit()
+
+
+
+    
 def main_menu():
     title_font = pygame.font.SysFont("JetBrains Mono", 36)
     run = True
     while run:
         WIN.blit(BG, (0,0))
         title_label = title_font.render("Press the mouse to begin", 1, (255,255,255))
-        rules_text = title_font.render("Press H for Game Rules", 1, (200, 200, 0))
-        WIN.blit(title_label, (WIDTH / 2 - title_label.get_width() / 2, 320))
-        WIN.blit(rules_text, (WIDTH / 2 - rules_text.get_width() / 2, 330 + title_label.get_height()))
+        rules_text=title_font.render("Press H for Game Rules",1,(200,200,0))
+        WIN.blit(title_label, (WIDTH/2 - title_label.get_width()/2, 320))
+        WIN.blit(rules_text, (WIDTH / 2 - rules_text.get_width() / 2, 330+title_label.get_height()))
         pygame.display.update()
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
             if event.type == pygame.MOUSEBUTTONDOWN:
-                # Start the game if mouse is clicked
                 main()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_h:
-                    # Show rules when 'H' is pressed
-                    game_rules()
-                elif event.key == pygame.K_ESCAPE:
-                    run = False
+        keys=pygame.key.get_pressed()
+        if keys[pygame.K_h]:
+            game_rules()
+
     pygame.quit()
 
 
