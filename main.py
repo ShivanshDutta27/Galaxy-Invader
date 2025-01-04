@@ -5,6 +5,11 @@ import os
 import time
 import random
 pygame.font.init()
+pygame.mixer.init()
+pygame.mixer.music.load("assets/space-120280.mp3")
+pygame.mixer.music.play(-1, 0.0)  # -1 means loop indefinitely; 0.0 means start from the beginning
+pygame.mixer.music.set_volume(0.1)
+
 
 # Setting Up the Window
 WIDTH, HEIGHT = 800, 750
@@ -17,7 +22,7 @@ GREEN_SPACE_SHIP = pygame.image.load(os.path.join("assets", "pixel_ship_green_sm
 BLUE_SPACE_SHIP = pygame.image.load(os.path.join("assets", "pixel_ship_blue_small.png"))
 
 # Player player
-YELLOW_SPACE_SHIP = pygame.image.load(os.path.join("assets", "pixel_ship_yellow.png"))
+YELLOW_SPACE_SHIP = pygame.transform.scale(pygame.image.load(os.path.join("assets", "pixel_ship_yellow.png")),(90,80))
 BOSS_SHIP=pygame.transform.scale(pygame.image.load(os.path.join("assets","pixel_ship_boss.png"),),(100,100))
 # Lasers
 RED_LASER = pygame.image.load(os.path.join("assets", "pixel_laser_red.png"))
@@ -25,6 +30,10 @@ GREEN_LASER = pygame.image.load(os.path.join("assets", "pixel_laser_green.png"))
 BLUE_LASER = pygame.image.load(os.path.join("assets", "pixel_laser_blue.png"))
 YELLOW_LASER = pygame.image.load(os.path.join("assets", "pixel_laser_yellow.png"))
 CYAN_LASER= pygame.image.load(os.path.join("assets","pixel_laser_cyan.png"))
+
+#Power Ups
+HEALTH3=pygame.transform.scale(pygame.image.load(os.path.join("assets", "health_power.png")),(25,25))
+FIRE=pygame.transform.scale(pygame.image.load(os.path.join("assets","bullet.png")),(40,40))
 
 # Background
 BG = pygame.transform.scale(pygame.image.load(os.path.join("assets", "background-black.png")), (WIDTH, HEIGHT))
@@ -40,16 +49,23 @@ rules = [
         "5. Avoid enemy lasers to protect your health.",
         "6. If your health or lives drop to zero, it's game over.",
         "7. Survive waves of enemies; each wave gets harder.",
+        "8. Collect power-ups to gain special abilities",
         "                                                  ",
         "Press ESC to return to the Main Menu."
     ]
 
+player_laser_sound=pygame.mixer.Sound("assets/laser-hit.mp3")
+player_laser_sound.set_volume(0.1)
+
+enemy_laser_sound=pygame.mixer.Sound("assets/enemy-laser.mp3")
+enemy_laser_sound.set_volume(0.1)
 
 class Laser:
     def __init__(self, x, y, img):
         self.x = x
         self.y = y
         self.img = img
+        
         self.mask = pygame.mask.from_surface(self.img)
 
     def draw(self, window):
@@ -63,6 +79,33 @@ class Laser:
 
     def collision(self, obj):
         return collide(self, obj)
+
+class PowerUp:
+
+    MAP = {
+        "health": HEALTH3,
+        "fire_rate": FIRE
+    }
+
+    def __init__(self, x, y, type):
+
+        self.x = x
+        self.y = y
+        self.type = type
+        self.img = self.MAP[type]
+        self.mask = pygame.mask.from_surface(self.img)  # For pixel-perfect collision
+
+    def draw(self, window):
+
+        window.blit(self.img, (self.x, self.y))
+
+    def move(self, speed):
+
+        self.y += speed
+
+    def get_height(self):
+        return self.img.get_height()
+
 
 # Abstract class for all Ships , so it wont be directly used but inherited from
 class Ship:
@@ -166,22 +209,28 @@ class Boss(Ship):
         self.last_move_time = pygame.time.get_ticks()
         self.dir=True
 
-    def move_lasers(self, vel, obj):
+    def move_lasers(self, vel, obj,isLow):
 
         self.cooldown()
         for laser in self.lasers:
+            if isLow:
+                vel=8
             laser.move(vel)
             if laser.off_screen(HEIGHT):
                 self.lasers.remove(laser)
             elif laser.collision(obj):
                 obj.health -= 10
                 self.lasers.remove(laser)
-    def shoot(self):
+    def shoot(self,isLow):
+
         if self.cool_down_counter == 0:
-            laser1 = Laser(self.x-20, self.y, self.laser_img)
+            laser1 = Laser(self.x-25, self.y, self.laser_img)
             self.lasers.append(laser1)
-            laser2 = Laser(self.x+self.ship_img.get_width() - 20, self.y, self.laser_img)
+            laser2 = Laser(self.x+self.ship_img.get_width() - 25, self.y, self.laser_img)
             self.lasers.append(laser2)
+            if(isLow):
+                laser3=Laser(self.x+25,self.y,self.laser_img)
+                self.lasers.append(laser3)
             self.cool_down_counter+=0.5
 
     def draw(self, window):
@@ -236,11 +285,12 @@ def collide(obj1, obj2):
 def main():
     run = True
     FPS = 60
-    level = 7
+    level = 0
     lives = 5
     main_font = pygame.font.SysFont("JetBrains Mono", 36)
     lost_font = pygame.font.SysFont("Arial", 60)
 
+    powers=[]
     enemies = []
     wave_length = 5
     enemy_vel = 1
@@ -254,6 +304,8 @@ def main():
 
     lost = False
     lost_count = 0
+    fire_rate_bool=False
+    power_counter=1
 
     
 
@@ -269,7 +321,13 @@ def main():
         for enemy in enemies:
             enemy.draw(WIN)
         # The ordering here makes it so that if they overlap then player will be visible as it is drawn later
+
+        for power in powers:
+            power.draw(WIN)
+
         player.draw(WIN)
+
+
 
         if lost:
             lost_label = lost_font.render("Git Gud", 1, (255,255,255))
@@ -291,17 +349,21 @@ def main():
                 run = False
             else:
                 continue
+
         # Spawning enemies
-        
         if len(enemies) == 0:
             level += 1
             if(level==8):
                 boss_level()
-                
-            wave_length += round(5*(math.log(level,2)))
+
+            wave_length += round(5*(math.log(level,5)))
             for i in range(wave_length):
                 enemy = Enemy(random.randrange(50, WIDTH-100), random.randrange(-1500, -100), random.choice(["red", "blue", "green"]))
                 enemies.append(enemy)
+
+            for i in range(round(math.log10(wave_length)+1)):
+                power=PowerUp(random.randrange(50, WIDTH-100), random.randrange(-1500, -100), random.choice(["health","fire_rate"]))
+                powers.append(power)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -318,6 +380,7 @@ def main():
             player.y += player_vel
         if keys[pygame.K_SPACE]:
             player.shoot()
+            player_laser_sound.play()
 
         for enemy in enemies[:]:
             enemy.move(enemy_vel)
@@ -325,6 +388,8 @@ def main():
 
             if random.randrange(0, 2*60) == 1:
                 enemy.shoot()
+                if enemy.x>0 and enemy.y>0:
+                    enemy_laser_sound.play()
 
             if collide(enemy, player):
                 player.health -= 10
@@ -332,6 +397,32 @@ def main():
             elif enemy.y + enemy.get_height() > HEIGHT:
                 lives -= 1
                 enemies.remove(enemy)
+
+
+        for power in powers[:]:
+            power.move(enemy_vel)
+
+            if collide(power, player):
+                if power.type=="health" and player.health<=90:
+                    player.health+=10
+                else:
+                    fire_rate_bool=True
+                powers.remove(power)
+            elif power.y + power.get_height() > HEIGHT:
+                powers.remove(power)
+
+        if fire_rate_bool:
+            if power_counter < 650:
+                player.COOLDOWN = 18
+                power_counter += 1
+
+            else:
+                power_counter = 0
+                fire_rate_bool=False
+                player.COOLDOWN = 30
+
+
+
         # Negative belocity so that it goes up and not down
         player.move_lasers(-laser_vel, enemies,False)
 
@@ -370,13 +461,14 @@ def boss_level():
     x=0
     main_font = pygame.font.SysFont("JetBrains Mono", 36)
     lost_font = pygame.font.SysFont("Arial", 50)
-    
-    boss=Boss(WIDTH//2-BOSS_SHIP.get_width()//2,-200,200)
+    counter=40
+    boss=Boss(WIDTH//2-BOSS_SHIP.get_width()//2,-200,360)
     player_vel = 5
     laser_vel = 5
     boss_vel = 6
     player = Player(300, 630)
     clock = pygame.time.Clock()
+
 
     lost = False
     lost_count = 0
@@ -445,14 +537,20 @@ def boss_level():
         if keys[pygame.K_SPACE]:
             player.shoot()
         val=random.random()
-        print(val)
+
         if boss.y>=15 :
             boss.move_x(2,val)
-
-
-        boss.move_lasers(laser_vel,player)
-        if random.randrange(0, 2 * 20) == 1:
-            boss.shoot()
+        if boss.health<0.5*boss.max_health:
+            boss.move_lasers(laser_vel,player,True)
+        else:
+            boss.move_lasers(laser_vel, player, False)
+        if boss.health<0.5*boss.max_health:
+            counter=15
+        if random.randrange(1, counter) == 1:
+            if boss.health<0.5*boss.max_health:
+                boss.shoot(True)
+            else:
+                boss.shoot(False)
 
         if collide(boss, player):
             lost=True
@@ -487,6 +585,6 @@ def main_menu():
     pygame.quit()
 
 
-
+# Implement Power Ups, Special Abilities for boss , Fix Difficulty Scaling, Add music maybe, High and Highest scores, Explosion animations, Ability to pause
 
 main_menu()
