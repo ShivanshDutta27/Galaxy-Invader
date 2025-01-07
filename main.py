@@ -6,6 +6,7 @@ import time
 import random
 pygame.font.init()
 pygame.mixer.init()
+
 pygame.mixer.music.load("assets/space-120280.mp3")
 pygame.mixer.music.play(-1, 0.0)  # -1 means loop indefinitely; 0.0 means start from the beginning
 pygame.mixer.music.set_volume(0.1)
@@ -285,14 +286,14 @@ def collide(obj1, obj2):
 def main():
     run = True
     FPS = 60
-    level = 0
+    level = 7
     lives = 5
     main_font = pygame.font.SysFont("JetBrains Mono", 36)
     lost_font = pygame.font.SysFont("Arial", 60)
 
     powers=[]
     enemies = []
-    wave_length = 5
+    wave_length = 6
     enemy_vel = 1
 
     player_vel = 5
@@ -346,6 +347,7 @@ def main():
 
         if lost:
             if lost_count > FPS * 3:
+                result_component(WIN, main_font, level-1)
                 run = False
             else:
                 continue
@@ -356,13 +358,13 @@ def main():
             if(level==8):
                 boss_level()
 
-            wave_length += round(5*(math.log(level,5)))
+            wave_length += round(5*(math.log(level,4)))
             for i in range(wave_length):
-                enemy = Enemy(random.randrange(50, WIDTH-100), random.randrange(-1500, -100), random.choice(["red", "blue", "green"]))
+                enemy = Enemy(random.randrange(50, WIDTH-100), random.randrange(-2000, -100), random.choice(["red", "blue", "green"]))
                 enemies.append(enemy)
 
             for i in range(round(math.log10(wave_length)+1)):
-                power=PowerUp(random.randrange(50, WIDTH-100), random.randrange(-1500, -100), random.choice(["health","fire_rate"]))
+                power=PowerUp(random.randrange(50, WIDTH-100), random.randrange(-2000, -800), random.choice(["health","fire_rate"]))
                 powers.append(power)
 
         for event in pygame.event.get():
@@ -509,12 +511,14 @@ def boss_level():
 
         if win:
             if win_count > FPS*2:
+                result_component(WIN, main_font, 7)
                 run=False
             else:
                 win_count+=1
                 continue
         if lost:
             if lost_count > FPS * 3:
+                result_component(WIN,main_font,7)
                 run = False
             else:
                 continue
@@ -553,8 +557,9 @@ def boss_level():
                 boss.shoot(False)
 
         if collide(boss, player):
-            lost=True
-            continue
+            player.health=0
+
+
         
         player.move_lasers(-laser_vel, boss,True)
         x+=1
@@ -584,7 +589,102 @@ def main_menu():
 
     pygame.quit()
 
+def result_component(screen, font, level,main_file="leaderboard.txt"):
 
-# Implement Power Ups, Special Abilities for boss , Fix Difficulty Scaling, Add music maybe, High and Highest scores, Explosion animations, Ability to pause
+    def load():
+        try:
+            with open(main_file, "r") as file:
+                return [line.strip().split(" ", 1) for line in file.readlines()]
+        except FileNotFoundError:
+            return []
 
+    def save(leaderboard):
+        with open(main_file, "w") as file:
+            for name, score in leaderboard:
+                file.write(f"{name} {score}\n")
+
+    def update(name, level_cleared):
+
+        leaderboard = load()
+        leaderboard.append((name, str(level_cleared)))  # Ensure level_cleared is a string
+        leaderboard = sorted(
+            leaderboard, key=lambda x: int(x[1]) if x[1].isdigit() else 8, reverse=True
+        )[:10]
+        save(leaderboard)
+
+    def show_message(message, delay=2000):
+        screen.fill((0, 0, 0))
+        msg_surface = font.render(message, True, pygame.Color('yellow'))
+        screen.blit(msg_surface, (WIDTH//2 - msg_surface.get_width() // 2, HEIGHT//2))
+        pygame.display.update()
+        pygame.time.delay(delay)
+
+    def get_player_name():
+        input_box = pygame.Rect(300, 400, 400, 50)
+        color_active = pygame.Color('dodgerblue2')
+        color_inactive = pygame.Color('lightskyblue3')
+        color = color_inactive
+        active = False
+        text = ""
+        clock = pygame.time.Clock()
+
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return None
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    active = input_box.collidepoint(event.pos)
+                    color = color_active if active else color_inactive
+                if event.type == pygame.KEYDOWN and active:
+                    if event.key == pygame.K_RETURN:
+                        return text.strip()[:15]
+                    elif event.key == pygame.K_BACKSPACE:
+                        text = text[:-1]
+                    else:
+                        text += event.unicode
+
+            screen.fill((0, 0, 0))
+            prompt = font.render("Enter your name:", True, pygame.Color('white'))
+            screen.blit(prompt, (input_box.x, input_box.y - 40))
+            pygame.draw.rect(screen, color, input_box, 2)
+            text_surface = font.render(text, True, pygame.Color('white'))
+            screen.blit(text_surface, (input_box.x + 5, input_box.y + 5))
+            input_box.w = max(400, text_surface.get_width() + 10)
+            pygame.display.flip()
+            clock.tick(30)
+
+    def display_leaderboard():
+        leaderboard = load()
+        screen.fill((0, 0, 0))
+        title = font.render("Top 10 Scores", True, pygame.Color('green'))
+        screen.blit(title, (WIDTH//2 - title.get_width() // 2, 20))
+
+        y_offset = 120
+        for idx, (name, level) in enumerate(leaderboard):
+            text = font.render(f"{idx + 1}. {name:<10} {level}", True, pygame.Color('white'))
+            screen.blit(text, (200, y_offset))
+            y_offset += 50
+
+        pygame.display.update()
+        pygame.time.delay(5000)
+
+    # Main logic for result_component
+    leaderboard = load()
+
+    if len(leaderboard) < 10 or int(level) > int(leaderboard[-1][1] if leaderboard[-1][1].isdigit() else 0):
+        show_message("You made it to the Top 10!")
+        player_name = get_player_name()
+        if player_name:
+            update(player_name, level)
+            show_message("Leaderboard updated!")
+        else:
+            show_message("Name entry canceled. Leaderboard not updated.")
+    else:
+        show_message("You did not qualify for the Top 10.")
+
+    display_leaderboard()
+
+
+
+# Add homing lasers for boss, Shield Mechanics for boss, Gravity Wells, Teleportation
 main_menu()
